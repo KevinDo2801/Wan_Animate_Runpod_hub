@@ -193,6 +193,14 @@ def handler(job):
 
     check_coord = job_input.get("points_store", None)
 
+    # Validate required inputs
+    if image_path is None:
+        raise Exception("Image input is required. Provide image_path, image_url, or image_base64")
+    if video_path is None:
+        raise Exception("Video input is required. Provide video_path, video_url, or video_base64")
+
+    # Initialize prompt variable to avoid UnboundLocalError
+    prompt = None
 
     if check_coord == None:
         if job_input.get("mode", "replace") == "animate":
@@ -236,6 +244,10 @@ def handler(job):
         prompt["107"]["inputs"]["neg_coordinates"] = job_input["neg_coordinates"]
         # prompt["107"]["inputs"]["width"] = job_input["width"]
         # prompt["107"]["inputs"]["height"] = job_input["height"]
+    
+    # Validate prompt was assigned
+    if prompt is None:
+        raise Exception("Failed to load workflow. Prompt was not initialized.")
     
 
     ws_url = f"ws://{server_address}:8188/ws?clientId={client_id}"
