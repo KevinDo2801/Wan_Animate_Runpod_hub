@@ -247,7 +247,7 @@ def handler(job):
     
     # Validate prompt was assigned
     if prompt is None:
-        raise Exception("Failed to load workflow. Prompt was not initialized.")
+        raise RuntimeError("Failed to load workflow. Prompt was not initialized.")
     
 
     ws_url = f"ws://{server_address}:8188/ws?clientId={client_id}"
