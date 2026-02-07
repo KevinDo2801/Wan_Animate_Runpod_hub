@@ -18,6 +18,7 @@ This WanAnimate client is primarily designed for **Engui Studio**, a comprehensi
 *   **WanAnimate Model**: Powered by the advanced WanAnimate AI model for high-quality video animation.
 *   **Image-to-Video Animation**: Converts static images into dynamic animated videos with natural motion.
 *   **S3 Upload Support**: Handles file uploads using RunPod Network Volume S3 automatically.
+*   **R2 Output Storage**: Optional automatic upload of generated videos to Cloudflare R2 storage.
 *   **Control Points**: Supports point-based control for precise animation guidance.
 *   **Batch Processing**: Process multiple images in a single operation.
 *   **Error Handling**: Comprehensive error handling and logging.
@@ -33,6 +34,48 @@ This template includes all the necessary components to run **WanAnimate** as a R
 *   **entrypoint.sh**: Performs initialization tasks when the worker starts.
 *   **newWanAnimate_api.json**: Workflow configuration for image-to-video animation with control points.
 *   **newWanAnimate_noSAM_api.json**: Workflow configuration for image-to-video animation without SAM.
+
+## ☁️ R2 Output Storage (Optional)
+
+The handler can automatically upload generated videos to **Cloudflare R2** storage when configured. This is optional - if not configured, videos are only returned as base64 in the response.
+
+### R2 Environment Variables
+
+To enable R2 upload, set the following environment variables in your RunPod endpoint:
+
+| Variable | Description | Example |
+| --- | --- | --- |
+| `R2_ACCOUNT_ID` | Your Cloudflare account ID | `abc123def456` |
+| `R2_ACCESS_KEY_ID` | R2 access key ID | `your-access-key-id` |
+| `R2_SECRET_ACCESS_KEY` | R2 secret access key | `your-secret-access-key` |
+| `R2_BUCKET_NAME` | R2 bucket name | `my-videos` |
+| `R2_PUBLIC_URL` | Public URL for your R2 bucket | `https://videos.example.com` |
+
+### How It Works
+
+1. When all R2 environment variables are set, the handler will:
+   - Generate the video as usual
+   - Upload it to R2 at `lazyclips-assets/videos/wan-animate/{task_id}.mp4`
+   - Return both the base64 video and the public URL
+
+2. Response format with R2 enabled:
+```json
+{
+  "video": "data:video/mp4;base64,...",
+  "video_url": "https://videos.example.com/lazyclips-assets/videos/wan-animate/task_abc123.mp4"
+}
+```
+
+3. If R2 is not configured or upload fails:
+   - Only `video` (base64) is returned
+   - No error is thrown - backward compatible
+
+### R2 Bucket Setup
+
+Make sure your R2 bucket:
+- Has public read access enabled (if you want direct URL access), OR
+- Is configured with appropriate CORS settings for your application
+- The `R2_PUBLIC_URL` points to your bucket's public URL or custom domain
 
 ## 📖 Python Client Usage
 
@@ -246,12 +289,22 @@ If the job is successful, it returns a JSON object with the generated video Base
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `video` | `string` | Base64 encoded video file data. |
+| `video_url` | `string` | (Optional) Public URL to the video on R2 storage. Only present if R2 is configured. |
 
-**Success Response Example:**
+**Success Response Example (without R2):**
 
 ```json
 {
   "video": "data:video/mp4;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+}
+```
+
+**Success Response Example (with R2 configured):**
+
+```json
+{
+  "video": "data:video/mp4;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+  "video_url": "https://videos.example.com/lazyclips-assets/videos/wan-animate/task_abc123.mp4"
 }
 ```
 

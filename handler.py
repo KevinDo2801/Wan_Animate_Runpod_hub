@@ -11,6 +11,8 @@ import urllib.parse
 import binascii # Base64 에러 처리를 위해 import
 import subprocess
 import time
+import boto3
+from botocore.exceptions import ClientError
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -19,6 +21,56 @@ logger = logging.getLogger(__name__)
 
 server_address = os.getenv('SERVER_ADDRESS', '127.0.0.1')
 client_id = str(uuid.uuid4())
+
+# R2 configuration from environment variables
+R2_ACCOUNT_ID = os.getenv('R2_ACCOUNT_ID')
+R2_ACCESS_KEY_ID = os.getenv('R2_ACCESS_KEY_ID')
+R2_SECRET_ACCESS_KEY = os.getenv('R2_SECRET_ACCESS_KEY')
+R2_BUCKET_NAME = os.getenv('R2_BUCKET_NAME')
+R2_PUBLIC_URL = os.getenv('R2_PUBLIC_URL')
+
+def upload_video_to_r2(local_path, r2_key):
+    """
+    Upload video file to Cloudflare R2 storage.
+    
+    Args:
+        local_path: Local path to the video file
+        r2_key: Key (path) to use in R2 bucket
+        
+    Returns:
+        Public URL of uploaded video if successful, None otherwise
+    """
+    # Check if all R2 credentials are available
+    if not all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_URL]):
+        logger.info("R2 credentials not fully configured, skipping upload")
+        return None
+    
+    try:
+        # Create S3 client configured for Cloudflare R2
+        s3_client = boto3.client(
+            's3',
+            endpoint_url=f'https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com',
+            aws_access_key_id=R2_ACCESS_KEY_ID,
+            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            region_name='auto'
+        )
+        
+        # Upload file to R2
+        logger.info(f"Uploading video to R2: {local_path} -> {r2_key}")
+        s3_client.upload_file(local_path, R2_BUCKET_NAME, r2_key)
+        
+        # Construct public URL
+        public_url = f"{R2_PUBLIC_URL.rstrip('/')}/{r2_key}"
+        logger.info(f"✅ Video uploaded successfully to R2: {public_url}")
+        return public_url
+        
+    except ClientError as e:
+        logger.error(f"❌ R2 upload failed: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"❌ Unexpected error during R2 upload: {e}")
+        return None
+
 def save_data_if_base64(data_input, temp_dir, output_filename):
     """
     입력 데이터가 Base64 문자열인지 확인하고, 맞다면 파일로 저장 후 경로를 반환합니다.
@@ -94,7 +146,11 @@ def get_videos(ws, prompt):
                 # fullpath를 이용하여 직접 파일을 읽고 base64로 인코딩
                 with open(video['fullpath'], 'rb') as f:
                     video_data = base64.b64encode(f.read()).decode('utf-8')
-                videos_output.append(video_data)
+                # Return both base64 and path for each video
+                videos_output.append({
+                    "base64": video_data,
+                    "path": video['fullpath']
+                })
         output_videos[node_id] = videos_output
 
     return output_videos
@@ -288,10 +344,30 @@ def handler(job):
     videos = get_videos(ws, prompt)
     ws.close()
 
-    # 이미지가 없는 경우 처리
+    # Process video results
     for node_id in videos:
         if videos[node_id]:
-            return {"video": videos[node_id][0]}
+            video_item = videos[node_id][0]
+            
+            # Build base response with base64 video
+            result = {"video": video_item["base64"]}
+            
+            # Try to upload to R2 if configured
+            if all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_URL]):
+                # Get file extension from original path
+                _, ext = os.path.splitext(video_item["path"])
+                if not ext:
+                    ext = ".mp4"  # Default to .mp4 if no extension
+                
+                # Create R2 key with task_id
+                r2_key = f"lazyclips-assets/videos/wan-animate/{task_id}{ext}"
+                
+                # Upload to R2
+                video_url = upload_video_to_r2(video_item["path"], r2_key)
+                if video_url:
+                    result["video_url"] = video_url
+            
+            return result
     
     return {"error": "비디오를를 찾을 수 없습니다."}
 
